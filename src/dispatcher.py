@@ -2,8 +2,10 @@
 Core logic for the delivery dispatch system.
 """
 import math
+import random
 from .course_data import COURSE_DATA
 from .models import BeverageCart, DeliveryStaff, Order, AssetStatus, OrderStatus
+from .prediction_service import PredictionService
 
 # --- NEW CONSTANTS ---
 PREP_TIME_MIN = 10
@@ -24,6 +26,7 @@ class Dispatcher:
         self.assets = assets
         self.course_data = COURSE_DATA
         self.pending_orders = []  # Store pending orders for batch evaluation
+        self.prediction_service = PredictionService()
 
     def _get_location_as_hole_num(self, location):
         """Converts location ('clubhouse' or hole number) to an integer."""
@@ -65,20 +68,26 @@ class Dispatcher:
         
         asset_loc = self._get_location_as_hole_num(asset.current_location)
         
-        # Time to get to clubhouse for pickup
-        travel_to_pickup_time = abs(int(asset_loc) - 0) * TRAVEL_TIME_PER_HOLE
+        # Time to get to clubhouse for pickup using ML prediction
+        time_of_day = orders[0].time_of_day if orders[0].time_of_day else 'morning'
+        travel_to_pickup_time = self.prediction_service.predict_travel_time(
+            asset.current_location, 'clubhouse', time_of_day
+        )
         
-        # Prep time (same for batch as single order due to parallel prep)
-        prep_time = PREP_TIME_MIN
+        # Get predicted prep time for all orders combined
+        # For batched orders, use the max prep time needed
+        max_prep_time = max(self.prediction_service.predict_order_prep_time(order) for order in orders)
         
         # Calculate delivery sequence and times
         destinations = []
-        current_time = prep_time + travel_to_pickup_time
-        last_location = 0  # Starting from clubhouse
+        current_time = max_prep_time + travel_to_pickup_time
+        last_location = 'clubhouse'  # Starting from clubhouse
         
         for i, order in enumerate(orders):
             # Travel time from last location to this order's predicted location
-            travel_time = abs(order.hole_number - last_location) * TRAVEL_TIME_PER_HOLE
+            travel_time = self.prediction_service.predict_travel_time(
+                last_location, order.hole_number, time_of_day
+            )
             current_time += travel_time
             
             # Add delivery penalty for each additional order
@@ -98,30 +107,38 @@ class Dispatcher:
         
         return current_time, destinations
 
-    def calculate_eta_and_destination(self, asset, order_hole: int):
+    def calculate_eta_and_destination(self, asset, order: Order):
         """
         Calculates the final ETA and predicted delivery hole for an asset.
         This is an iterative process because the destination depends on the ETA.
         """
-        predicted_hole = order_hole
+        predicted_hole = order.hole_number
         final_eta = float('inf')
+        time_of_day = order.time_of_day if order.time_of_day else 'morning'
 
         # Iteratively calculate ETA to get a stable prediction. 3 iterations is enough.
         for _ in range(3):
             asset_loc = self._get_location_as_hole_num(asset.current_location)
             
             # Time for asset to get from current location to pickup (clubhouse)
-            travel_to_pickup_time = abs(asset_loc - 0) * TRAVEL_TIME_PER_HOLE
+            travel_to_pickup_time = self.prediction_service.predict_travel_time(
+                asset.current_location, 'clubhouse', time_of_day
+            )
             
             # Time for asset to get from pickup to the predicted player location
-            travel_from_pickup_time = abs(predicted_hole - 0) * TRAVEL_TIME_PER_HOLE
+            travel_from_pickup_time = self.prediction_service.predict_travel_time(
+                'clubhouse', predicted_hole, time_of_day
+            )
+            
+            # Get predicted prep time based on order contents
+            prep_time = self.prediction_service.predict_order_prep_time(order)
             
             # Total time includes prep time and all travel
-            total_eta = PREP_TIME_MIN + travel_to_pickup_time + travel_from_pickup_time
+            total_eta = prep_time + travel_to_pickup_time + travel_from_pickup_time
             
             # Predict how many holes the player has advanced in that time
             holes_advanced = math.floor(total_eta / PLAYER_MIN_PER_HOLE)
-            new_predicted_hole = order_hole + holes_advanced
+            new_predicted_hole = order.hole_number + holes_advanced
 
             if new_predicted_hole == predicted_hole:
                 final_eta = total_eta
@@ -130,7 +147,7 @@ class Dispatcher:
             predicted_hole = new_predicted_hole
             final_eta = total_eta # Update in case loop finishes
 
-        return final_eta, predicted_hole
+        return final_eta, predicted_hole, prep_time
 
     def find_best_candidate(self, order: Order, consider_batching: bool = True):
         """
@@ -148,7 +165,7 @@ class Dispatcher:
         for asset in self.assets:
             if asset.status == AssetStatus.AVAILABLE:
                 # Evaluate individual order delivery
-                eta, predicted_hole = self.calculate_eta_and_destination(asset, order.hole_number)
+                eta, predicted_hole, prep_time = self.calculate_eta_and_destination(asset, order)
                 
                 # Check beverage carts for zone restriction
                 can_deliver = True
@@ -159,10 +176,14 @@ class Dispatcher:
                         can_deliver = False
                 
                 if can_deliver:
+                    # Check acceptance probability
+                    acceptance_chance = self.prediction_service.predict_offer_acceptance_chance(asset, order)
                     candidates.append({
                         "asset": asset, 
                         "eta": eta, 
                         "predicted_hole": predicted_hole,
+                        "prep_time": prep_time,
+                        "acceptance_chance": acceptance_chance,
                         "orders": [order],
                         "is_batch": False
                     })
@@ -181,26 +202,39 @@ class Dispatcher:
                         
                         if can_deliver_batch:
                             batch_eta, batch_destinations = self.calculate_batch_eta_and_destinations(asset, batch_orders)
+                            # For batch acceptance, use the average acceptance chance
+                            batch_acceptance = sum(self.prediction_service.predict_offer_acceptance_chance(asset, o) 
+                                                 for o in batch_orders) / len(batch_orders)
                             batch_candidates.append({
                                 "asset": asset,
                                 "eta": batch_eta,
                                 "destinations": batch_destinations,
                                 "orders": batch_orders,
-                                "is_batch": True
+                                "is_batch": True,
+                                "acceptance_chance": batch_acceptance
                             })
         
         # 2. Combine and rank all candidates
         all_candidates = candidates + batch_candidates
         
-        if not all_candidates:
+        # Filter candidates by acceptance probability
+        # Only consider candidates with >50% acceptance chance
+        viable_candidates = [c for c in all_candidates if c['acceptance_chance'] > 0.5]
+        
+        if not viable_candidates:
+            # If no one is likely to accept, consider all candidates
+            print("(WARNING: No candidates with >50% acceptance chance. Considering all candidates.)")
+            viable_candidates = all_candidates
+        
+        if not viable_candidates:
             return None
         
         # Sort to find the absolute fastest candidate
-        all_candidates.sort(key=lambda x: x["eta"])
-        fastest_candidate = all_candidates[0]
+        viable_candidates.sort(key=lambda x: x["eta"])
+        fastest_candidate = viable_candidates[0]
 
         # Find the best available beverage cart candidate
-        cart_candidates = [c for c in all_candidates if isinstance(c['asset'], BeverageCart)]
+        cart_candidates = [c for c in viable_candidates if isinstance(c['asset'], BeverageCart)]
         
         if not cart_candidates:
             # No available carts, so return the fastest overall candidate
@@ -223,48 +257,58 @@ class Dispatcher:
             best_asset = best_candidate_info["asset"]
             orders_to_assign = best_candidate_info["orders"]
             is_batch = best_candidate_info["is_batch"]
+            acceptance_chance = best_candidate_info['acceptance_chance']
             
-            # Update asset status
-            best_asset.status = AssetStatus.ON_DELIVERY
-            
-            # Assign all orders in the batch
-            for order_to_assign in orders_to_assign:
-                order_to_assign.assigned_to = best_asset
-                order_to_assign.status = OrderStatus.ASSIGNED
-                best_asset.current_orders.append(order_to_assign)
-                # Remove from pending orders if it was there
-                if order_to_assign in self.pending_orders:
-                    self.pending_orders.remove(order_to_assign)
-            
-            # Log the assignment
-            if is_batch and len(orders_to_assign) > 1:
-                order_ids = ", ".join([o.order_id for o in orders_to_assign])
-                holes = ", ".join([str(o.hole_number) for o in orders_to_assign])
-                print(f"\n=== BATCH DELIVERY ===")
-                print(f"Orders {order_ids} for holes {holes} assigned to {best_asset.name}.")
-                print(f"Batch size: {len(orders_to_assign)} orders")
+            # Simulate whether the asset actually accepts the order
+            if random.random() <= acceptance_chance:
+                # Update asset status
+                best_asset.status = AssetStatus.ON_DELIVERY
                 
-                # Show delivery sequence
-                destinations = best_candidate_info.get("destinations", [])
-                for i, (batch_order, predicted_hole) in enumerate(destinations):
-                    print(f"  → Delivery {i+1}: Order {batch_order.order_id} to Hole {predicted_hole}")
+                # Assign all orders in the batch
+                for order_to_assign in orders_to_assign:
+                    order_to_assign.assigned_to = best_asset
+                    order_to_assign.status = OrderStatus.ASSIGNED
+                    best_asset.current_orders.append(order_to_assign)
+                    # Remove from pending orders if it was there
+                    if order_to_assign in self.pending_orders:
+                        self.pending_orders.remove(order_to_assign)
                 
-                print(f"Total batch ETA: {best_candidate_info['eta']:.2f} minutes")
+                # Log the assignment
+                if is_batch and len(orders_to_assign) > 1:
+                    order_ids = ", ".join([o.order_id for o in orders_to_assign])
+                    holes = ", ".join([str(o.hole_number) for o in orders_to_assign])
+                    print(f"\n=== BATCH DELIVERY ===")
+                    print(f"Orders {order_ids} for holes {holes} assigned to {best_asset.name}.")
+                    print(f"Batch size: {len(orders_to_assign)} orders")
+                    print(f"Acceptance probability was {acceptance_chance:.1%}")
+                    
+                    # Show delivery sequence
+                    destinations = best_candidate_info.get("destinations", [])
+                    for i, (batch_order, predicted_hole) in enumerate(destinations):
+                        print(f"  → Delivery {i+1}: Order {batch_order.order_id} to Hole {predicted_hole}")
+                    
+                    print(f"Total batch ETA: {best_candidate_info['eta']:.2f} minutes")
+                    
+                    # Calculate efficiency gain
+                    individual_eta_sum = 0
+                    for batch_order in orders_to_assign:
+                        ind_eta, _, _ = self.calculate_eta_and_destination(best_asset, batch_order)
+                        individual_eta_sum += ind_eta
+                    efficiency_gain = (individual_eta_sum - best_candidate_info['eta']) / individual_eta_sum * 100
+                    print(f"Efficiency gain: {efficiency_gain:.1f}% time saved vs individual deliveries")
+                else:
+                    # Single order delivery
+                    print(f"\nOrder {order.order_id} for hole {order.hole_number} assigned to {best_asset.name}.")
+                    if "predicted_hole" in best_candidate_info:
+                        prep_time = best_candidate_info.get('prep_time', PREP_TIME_MIN)
+                        print(f"→ Predicted delivery at Hole {best_candidate_info['predicted_hole']} in {best_candidate_info['eta']:.2f} minutes (prep: {prep_time:.1f} min)")
+                    print(f"→ Acceptance probability was {acceptance_chance:.1%}")
                 
-                # Calculate efficiency gain
-                individual_eta_sum = 0
-                for batch_order in orders_to_assign:
-                    ind_eta, _ = self.calculate_eta_and_destination(best_asset, batch_order.hole_number)
-                    individual_eta_sum += ind_eta
-                efficiency_gain = (individual_eta_sum - best_candidate_info['eta']) / individual_eta_sum * 100
-                print(f"Efficiency gain: {efficiency_gain:.1f}% time saved vs individual deliveries")
+                return best_asset
             else:
-                # Single order delivery
-                print(f"\nOrder {order.order_id} for hole {order.hole_number} assigned to {best_asset.name}.")
-                if "predicted_hole" in best_candidate_info:
-                    print(f"→ Predicted delivery at Hole {best_candidate_info['predicted_hole']} in {best_candidate_info['eta']:.2f} minutes")
-            
-            return best_asset
+                print(f"{best_asset.name} declined the order (acceptance chance was {acceptance_chance:.1%}).")
+                # In a real system, we would retry with the next best candidate
+                return None
         else:
             print(f"No available candidates found for order {order.order_id}.")
             return None

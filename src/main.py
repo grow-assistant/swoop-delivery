@@ -7,6 +7,50 @@ from .simulation_engine import SimulationEngine
 from .simulation_config import SimulationConfig, SimulationPresets, DispatcherStrategy
 from .models import BeverageCart, DeliveryStaff, Order, OrderItem, AssetStatus
 from .dispatcher import Dispatcher
+from .simulation import AssetSimulator
+
+
+def run_simple_simulation():
+    """Original simple simulation for backward compatibility."""
+    print("--- Swoop Delivery Simulation for Pinetree Country Club ---")
+    
+    # 1. Initialize Delivery Assets
+    assets = [
+        BeverageCart(asset_id="cart1", name="Reese", loop="front_9", current_location=2),
+        BeverageCart(asset_id="cart2", name="Bev-Cart 2", loop="back_9", current_location="clubhouse"),
+        DeliveryStaff(asset_id="staff1", name="Esteban", current_location="clubhouse"),
+        DeliveryStaff(asset_id="staff2", name="Dylan", current_location=18),
+        DeliveryStaff(asset_id="staff3", name="Paige", status=AssetStatus.EN_ROUTE_TO_DROPOFF, destination=15)
+    ]
+    
+    print("\nInitial Asset Status:")
+    for asset in assets:
+        print(f"- {asset.name}: Location={asset.current_location}, Status={asset.status.value}")
+        
+    # 2. Initialize Dispatcher and Simulator
+    dispatcher = Dispatcher(assets)
+    simulator = AssetSimulator()
+    
+    # 3. Create a new order
+    print("\n--- New Order ---")
+    order = Order(order_id="ORD123", hole_number=4)
+    print(f"Incoming order for Hole {order.hole_number}.")
+
+    # 4. Dispatch the order
+    print("\nDispatching order...")
+    dispatcher.dispatch_order(order)
+    
+    # 5. Simulate one movement step to show state-driven behavior
+    print("\n--- Simulating Asset Movement ---")
+    for asset in assets:
+        simulator.simulate_asset_movement(asset)
+    
+    # 6. Show updated status
+    print("\nUpdated Asset Status:")
+    for asset in assets:
+        print(f"- {asset.name}: Location={asset.current_location}, Status={asset.status.value}")
+        if asset.destination:
+            print(f"  -> Heading to: {asset.destination}")
 
 
 def run_basic_scenario():
@@ -152,15 +196,16 @@ def run_ml_demo():
         BeverageCart(asset_id="cart2", name="Bev-Cart 2", loop="back_9", current_location="clubhouse"),
         DeliveryStaff(asset_id="staff1", name="Esteban", current_location="clubhouse"),
         DeliveryStaff(asset_id="staff2", name="Dylan", current_location=18),
-        DeliveryStaff(asset_id="staff3", name="Paige", status=AssetStatus.ON_DELIVERY)
+        DeliveryStaff(asset_id="staff3", name="Paige", status=AssetStatus.EN_ROUTE_TO_DROPOFF, destination=15)
     ]
     
     print("\nInitial Asset Status:")
     for asset in assets:
         print(f"- {asset.name}: Location={asset.current_location}, Status={asset.status.value}")
         
-    # 2. Initialize Dispatcher
+    # 2. Initialize Dispatcher and Simulator
     dispatcher = Dispatcher(assets)
+    simulator = AssetSimulator()
     
     # 3. Test single order dispatch with ML predictions
     print("\n--- Test 1: Single Order Dispatch with ML Predictions ---")
@@ -185,7 +230,7 @@ def run_ml_demo():
     # Reset assets for next test
     for asset in assets:
         if asset.name in ["Reese", "Esteban"]:  # Reset the assets that might have been used
-            asset.status = AssetStatus.AVAILABLE
+            asset.status = AssetStatus.IDLE
             asset.current_orders = []
     
     # 4. Test batch order dispatch with ML predictions
@@ -265,7 +310,9 @@ def main():
     if len(sys.argv) > 1:
         scenario = sys.argv[1].lower()
         
-        if scenario == "basic":
+        if scenario == "simple":
+            run_simple_simulation()
+        elif scenario == "basic":
             run_basic_scenario()
         elif scenario == "compare":
             run_strategy_comparison()
@@ -277,18 +324,10 @@ def main():
             run_ml_demo()
         else:
             print(f"Unknown scenario: {scenario}")
-            print("Available scenarios: basic, compare, volume, custom, ml-demo")
+            print("Available scenarios: simple, basic, compare, volume, custom, ml-demo")
     else:
-        # Run all scenarios
-        print("\nRunning all simulation scenarios...\n")
-        run_basic_scenario()
-        run_strategy_comparison()
-        run_volume_test()
-        run_custom_scenario()
-        print("\n" + "="*80)
-        print("Running ML Demo separately...")
-        print("="*80)
-        run_ml_demo()
+        # Run the simple simulation by default
+        run_simple_simulation()
 
 
 if __name__ == "__main__":

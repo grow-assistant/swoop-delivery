@@ -5,6 +5,7 @@ import math
 import random
 from .course_data import COURSE_DATA
 from .models import BeverageCart, DeliveryStaff, Order, AssetStatus, OrderStatus
+from .simulation import AssetSimulator
 from .prediction_service import PredictionService
 
 # --- NEW CONSTANTS ---
@@ -25,6 +26,7 @@ class Dispatcher:
     def __init__(self, assets: list):
         self.assets = assets
         self.course_data = COURSE_DATA
+        self.simulator = AssetSimulator()
         self.pending_orders = []  # Store pending orders for batch evaluation
         self.prediction_service = PredictionService()
 
@@ -163,7 +165,7 @@ class Dispatcher:
 
         # 1. Get eligible candidates for both individual and batched deliveries
         for asset in self.assets:
-            if asset.status == AssetStatus.AVAILABLE:
+            if asset.status == AssetStatus.IDLE:
                 # Evaluate individual order delivery
                 eta, predicted_hole, prep_time = self.calculate_eta_and_destination(asset, order)
                 
@@ -261,14 +263,18 @@ class Dispatcher:
             
             # Simulate whether the asset actually accepts the order
             if random.random() <= acceptance_chance:
-                # Update asset status
-                best_asset.status = AssetStatus.ON_DELIVERY
+                # Set destination based on first order
+                best_asset.destination = orders_to_assign[0].hole_number
+                
+                # Use the simulator to update asset state properly
+                self.simulator.update_asset_state_for_new_order(best_asset, orders_to_assign[0])
                 
                 # Assign all orders in the batch
                 for order_to_assign in orders_to_assign:
                     order_to_assign.assigned_to = best_asset
                     order_to_assign.status = OrderStatus.ASSIGNED
-                    best_asset.current_orders.append(order_to_assign)
+                    if order_to_assign not in best_asset.current_orders:
+                        best_asset.current_orders.append(order_to_assign)
                     # Remove from pending orders if it was there
                     if order_to_assign in self.pending_orders:
                         self.pending_orders.remove(order_to_assign)

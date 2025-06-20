@@ -38,7 +38,7 @@ mypy==1.7.1
 
 # Background tasks
 celery[redis]==5.3.4
-redis==5.0.1
+redis==4.6.0
 
 # WebSocket support for real-time tracking
 websockets==12.0

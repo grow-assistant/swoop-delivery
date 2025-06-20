@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime
+import random
 
 from ..models import Order, OrderStatus, AssetStatus, BeverageCart, DeliveryStaff
 from ..dispatcher import Dispatcher
@@ -66,18 +67,54 @@ async def startup_event():
     """Initialize the system with default assets"""
     global assets, dispatcher
     
-    # Initialize default assets
+    # Define realistic starting locations
+    front_nine_holes = list(range(1, 10))  # Holes 1-9
+    back_nine_holes = list(range(10, 19))  # Holes 10-18
+    all_locations = ["clubhouse"] + list(range(1, 19))  # All possible locations
+    
+    # Initialize assets with random realistic starting positions
     default_assets = [
-        BeverageCart(asset_id="cart1", name="Reese", loop="front_9", current_location=1),
-        BeverageCart(asset_id="cart2", name="Bev-Cart 2", loop="back_9", current_location=10),
-        DeliveryStaff(asset_id="staff1", name="Esteban", current_location="clubhouse"),
-        DeliveryStaff(asset_id="staff2", name="Dylan", current_location=18),
-        DeliveryStaff(asset_id="staff3", name="Paige", current_location=5)
+        # Cart 1 - restricted to front 9, random starting hole
+        BeverageCart(
+            asset_id="cart1", 
+            name="Reese", 
+            loop="front_9", 
+            current_location=random.choice(front_nine_holes)
+        ),
+        # Cart 2 - restricted to back 9, random starting hole
+        BeverageCart(
+            asset_id="cart2", 
+            name="Bev-Cart 2", 
+            loop="back_9", 
+            current_location=random.choice(back_nine_holes)
+        ),
+        # Staff 1 - can be anywhere, higher chance of clubhouse
+        DeliveryStaff(
+            asset_id="staff1", 
+            name="Esteban", 
+            current_location=random.choice(["clubhouse", "clubhouse"] + list(range(1, 19)))
+        ),
+        # Staff 2 - can be anywhere
+        DeliveryStaff(
+            asset_id="staff2", 
+            name="Dylan", 
+            current_location=random.choice(all_locations)
+        ),
+        # Staff 3 - can be anywhere
+        DeliveryStaff(
+            asset_id="staff3", 
+            name="Paige", 
+            current_location=random.choice(all_locations)
+        )
     ]
     
     assets = [AssetResponse.from_model(asset) for asset in default_assets]
     dispatcher = Dispatcher(default_assets)
-    logger.info(f"System initialized with {len(assets)} assets")
+    
+    # Log initial positions
+    logger.info("System initialized with randomized asset positions:")
+    for asset in default_assets:
+        logger.info(f"  - {asset.name} ({asset.asset_id}): Location {asset.current_location}")
 
 @app.get("/")
 async def root():

@@ -233,13 +233,82 @@ Back Nine (Holes 10-18):
 Clubhouse: Central location (starting point)
 ```
 
-### Asset Starting Positions
+### Randomized Asset Starting Positions
 
-- **cart1 (Reese)**: Front 9, starts at hole 1
-- **cart2 (Bev-Cart 2)**: Back 9, starts at hole 10
-- **staff1 (Esteban)**: Clubhouse
-- **staff2 (Dylan)**: Hole 18
-- **staff3 (Paige)**: Hole 5
+**NEW: Assets now start at randomized realistic positions!**
+
+Each time the system starts, assets are placed at random locations based on their constraints:
+
+- **cart1 (Reese)**: Random hole on Front 9 (1-9)
+- **cart2 (Bev-Cart 2)**: Random hole on Back 9 (10-18) 
+- **staff1 (Esteban)**: Random location (higher chance of clubhouse)
+- **staff2 (Dylan)**: Random location (any hole or clubhouse)
+- **staff3 (Paige)**: Random location (usually on course)
+
+### Viewing Current Positions
+
+Check the randomized starting positions:
+
+```bash
+# Display current asset positions
+python scripts/show_positions.py
+```
+
+This will show:
+- Visual map of the golf course
+- Current location of each asset
+- Asset availability status
+- Distribution statistics
+
+### Customizing Randomization
+
+Edit `scripts/simulation_config.py` to adjust:
+- Starting position ranges for each asset
+- Movement patterns and probabilities
+- Order generation patterns
+- Time-based menu preferences
+
+Example customization:
+```python
+# Make cart1 prefer holes 7-9
+ASSET_START_CONFIG["cart1"]["start_locations"] = lambda: random.choice([7, 8, 9])
+
+# Increase chance of staff returning to clubhouse
+MOVEMENT_PATTERNS["delivery_staff"]["return_to_clubhouse_chance"] = 0.5
+```
+
+## Enhanced Testing Features
+
+### Realistic Movement Patterns
+
+Assets now move with realistic patterns:
+
+**Beverage Carts:**
+- 80% sequential movement (hole to hole)
+- 15% skip holes to serve different areas
+- 5% return to loop start
+- Stay within their assigned 9-hole loop
+
+**Delivery Staff:**
+- 30% return to clubhouse between deliveries
+- 50% move to nearby holes (within 3 holes)
+- 20% jump to distant locations
+- Can access entire course
+
+### Time-Based Menu Items
+
+Orders now include realistic menu items based on time:
+- **Morning (6-10am)**: Coffee, Breakfast Sandwich, Energy Bar
+- **Midday (10-2pm)**: Beer, Hot Dog, Burger, Chips
+- **Afternoon (2-5pm)**: Beer, Energy Drink, Snacks, Ice Pack
+- **Evening (5-10pm)**: Beer, Sandwich, Wings
+
+### Order Clustering
+
+Simulates groups playing together:
+- 30% chance of clustered orders
+- Groups of 2-4 players
+- Orders at nearby holes
 
 ## Monitoring Performance
 

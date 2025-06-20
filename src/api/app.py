@@ -232,6 +232,9 @@ async def dispatch_order(order_id: str):
     )
     
     # Dispatch the order
+    if not dispatcher:
+        raise HTTPException(status_code=500, detail="Dispatcher not initialized")
+    
     assigned_asset = dispatcher.dispatch_order(order)
     
     if not assigned_asset:
@@ -242,10 +245,10 @@ async def dispatch_order(order_id: str):
     order_response.assigned_to_id = assigned_asset.asset_id
     order_response.assigned_to_name = assigned_asset.name
     
-    # Calculate ETA
-    eta, predicted_hole = dispatcher.calculate_eta_and_destination(
+    # Calculate ETA (method now returns 3 values)
+    eta, predicted_hole, prep_time = dispatcher.calculate_eta_and_destination(
         assigned_asset, 
-        order.hole_number
+        order
     )
     
     dispatch_response = DispatchResponse(

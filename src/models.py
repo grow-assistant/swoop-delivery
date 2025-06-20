@@ -59,7 +59,7 @@ class Order:
     order_id: str
     hole_number: int
     status: OrderStatus = OrderStatus.PENDING
-    assigned_to: DeliveryAsset = None
+    assigned_to: Optional[DeliveryAsset] = None
     items: List[OrderItem] = field(default_factory=list)
     value: float = 0.0
     time_of_day: Optional[str] = None  # 'morning', 'noon', 'afternoon' 

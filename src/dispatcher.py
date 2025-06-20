@@ -3,12 +3,18 @@ Core dispatcher system that uses pluggable strategies.
 """
 import math
 import random
+<<<<<<< HEAD
 from typing import Optional
+=======
+>>>>>>> origin/main
 from .course_data import COURSE_DATA
 from .models import BeverageCart, DeliveryStaff, Order, AssetStatus, OrderStatus
 from .simulation import AssetSimulator
 from .prediction_service import PredictionService
+<<<<<<< HEAD
 from .dispatcher_strategies import DispatchStrategy, SimpleDispatcher
+=======
+>>>>>>> origin/main
 
 # --- CONSTANTS ---
 PLAYER_MIN_PER_HOLE = 15  # Average time a player takes to complete a hole
@@ -22,6 +28,12 @@ BATCH_DELIVERY_TIME_PENALTY = 2  # Additional minutes per extra order in a batch
 BATCH_EFFICIENCY_BONUS = 0.85  # Efficiency multiplier for batched orders (15% reduction in total time)
 
 
+# --- BATCHING CONSTANTS ---
+MAX_BATCH_SIZE = 3  # Maximum number of orders in a batch
+ADJACENT_HOLE_THRESHOLD = 2  # Orders within this many holes are considered adjacent
+BATCH_DELIVERY_TIME_PENALTY = 2  # Additional minutes per extra order in a batch
+BATCH_EFFICIENCY_BONUS = 0.85  # Efficiency multiplier for batched orders (15% reduction in total time)
+
 class Dispatcher:
     """Handles the logic for finding and assigning the best delivery candidate."""
 
@@ -31,7 +43,10 @@ class Dispatcher:
         self.simulator = AssetSimulator()
         self.pending_orders = []  # Store pending orders for batch evaluation
         self.prediction_service = PredictionService()
+<<<<<<< HEAD
         self.strategy = strategy  # Optional pluggable strategy
+=======
+>>>>>>> origin/main
 
     def _get_location_as_hole_num(self, location):
         """Converts location ('clubhouse' or hole number) to an integer."""
@@ -39,7 +54,11 @@ class Dispatcher:
             return 0
         return location
 
+<<<<<<< HEAD
     def identify_batchable_orders(self, order: Order, available_orders: Optional[list] = None):
+=======
+    def identify_batchable_orders(self, order: Order, available_orders: list = None):
+>>>>>>> origin/main
         """
         Identifies orders that can be batched together based on proximity.
         Returns a list of orders that can be batched with the given order.

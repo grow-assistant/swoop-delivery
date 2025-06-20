@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: golf-delivery
+  labels:
+    app: golf-delivery
+    environment: production

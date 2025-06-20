@@ -1,126 +1,76 @@
 """
-Core logic for the delivery dispatch system.
+Core dispatcher system that uses pluggable strategies.
 """
-import math
-from .course_data import COURSE_DATA
-from .models import BeverageCart, DeliveryStaff, Order, AssetStatus
+from typing import Optional
+from .models import Order, AssetStatus
+from .dispatcher_strategies import DispatchStrategy, SimpleDispatcher
 
-# --- NEW CONSTANTS ---
-PREP_TIME_MIN = 10
-PLAYER_MIN_PER_HOLE = 15  # Average time a player takes to complete a hole
-TRAVEL_TIME_PER_HOLE = 1.5 # Travel time for an asset between adjacent holes
-BEV_CART_PREFERENCE_MIN = 10 # Preference window for beverage carts
 
 class Dispatcher:
-    """Handles the logic for finding and assigning the best delivery candidate."""
-
-    def __init__(self, assets: list):
-        self.assets = assets
-        self.course_data = COURSE_DATA
-
-    def _get_location_as_hole_num(self, location):
-        """Converts location ('clubhouse' or hole number) to an integer."""
-        if isinstance(location, str) and location.lower() == 'clubhouse':
-            return 0
-        return location
-
-    def calculate_eta_and_destination(self, asset, order_hole: int):
+    """
+    Main dispatcher that delegates to pluggable dispatch strategies.
+    """
+    
+    def __init__(self, assets: list, strategy: Optional[DispatchStrategy] = None):
         """
-        Calculates the final ETA and predicted delivery hole for an asset.
-        This is an iterative process because the destination depends on the ETA.
-        """
-        predicted_hole = order_hole
-        final_eta = float('inf')
-
-        # Iteratively calculate ETA to get a stable prediction. 3 iterations is enough.
-        for _ in range(3):
-            asset_loc = self._get_location_as_hole_num(asset.current_location)
-            
-            # Time for asset to get from current location to pickup (clubhouse)
-            travel_to_pickup_time = abs(asset_loc - 0) * TRAVEL_TIME_PER_HOLE
-            
-            # Time for asset to get from pickup to the predicted player location
-            travel_from_pickup_time = abs(predicted_hole - 0) * TRAVEL_TIME_PER_HOLE
-            
-            # Total time includes prep time and all travel
-            total_eta = PREP_TIME_MIN + travel_to_pickup_time + travel_from_pickup_time
-            
-            # Predict how many holes the player has advanced in that time
-            holes_advanced = math.floor(total_eta / PLAYER_MIN_PER_HOLE)
-            new_predicted_hole = order_hole + holes_advanced
-
-            if new_predicted_hole == predicted_hole:
-                final_eta = total_eta
-                break # Prediction is stable
-            
-            predicted_hole = new_predicted_hole
-            final_eta = total_eta # Update in case loop finishes
-
-        return final_eta, predicted_hole
-
-    def find_best_candidate(self, order: Order):
-        """
-        Finds the best-ranked candidate for a given order, with a preference
-        for beverage carts if they are not significantly slower.
-        """
-        candidates = []
-
-        # 1. Get eligible candidates
-        for asset in self.assets:
-            if asset.status == AssetStatus.AVAILABLE:
-                eta, predicted_hole = self.calculate_eta_and_destination(asset, order.hole_number)
-                
-                # Check beverage carts for zone restriction
-                if isinstance(asset, BeverageCart):
-                    order_is_on_front = order.hole_number in self.course_data["front_9_holes"]
-                    if (order_is_on_front and asset.loop == "front_9") or \
-                       (not order_is_on_front and asset.loop == "back_9"):
-                        candidates.append({"asset": asset, "eta": eta, "predicted_hole": predicted_hole})
-                # Delivery staff have no zone restriction
-                elif isinstance(asset, DeliveryStaff):
-                    candidates.append({"asset": asset, "eta": eta, "predicted_hole": predicted_hole})
+        Initialize dispatcher with assets and a strategy.
         
-        # 2. Rank candidates with cart preference
-        if not candidates:
+        Args:
+            assets: List of delivery assets
+            strategy: Dispatch strategy to use. Defaults to SimpleDispatcher.
+        """
+        self.assets = assets
+        self.strategy = strategy or SimpleDispatcher(assets)
+    
+    def set_strategy(self, strategy: DispatchStrategy):
+        """Change the dispatch strategy at runtime."""
+        self.strategy = strategy
+    
+    def dispatch_order(self, order: Order):
+        """
+        Dispatch an order using the current strategy.
+        
+        Args:
+            order: The order to dispatch
+            
+        Returns:
+            The assigned asset or None if no asset was available
+        """
+        # Get available assets
+        available_assets = self.strategy.get_available_assets()
+        
+        if not available_assets:
+            print(f"No available assets for order {order.order_id}.")
             return None
         
-        # Sort to find the absolute fastest candidate
-        candidates.sort(key=lambda x: x["eta"])
-        fastest_candidate = candidates[0]
-
-        # Find the best available beverage cart candidate
-        cart_candidates = [c for c in candidates if isinstance(c['asset'], BeverageCart)]
+        # Use the strategy to choose the best asset
+        chosen_asset = self.strategy.choose_asset(order, available_assets)
         
-        if not cart_candidates:
-            # No available carts, so return the fastest overall candidate
-            return fastest_candidate
-
-        best_cart_candidate = min(cart_candidates, key=lambda x: x['eta'])
-
-        # Prefer the cart if it's not more than 10 minutes slower
-        if best_cart_candidate['eta'] <= fastest_candidate['eta'] + BEV_CART_PREFERENCE_MIN:
-            print(f"(INFO: Beverage cart preferred. ETA diff: {best_cart_candidate['eta'] - fastest_candidate['eta']:.2f} min)")
-            return best_cart_candidate
-        else:
-            return fastest_candidate
-
-    def dispatch_order(self, order: Order):
-        """Assigns an order to the best available candidate."""
-        best_candidate_info = self.find_best_candidate(order)
-        
-        if best_candidate_info:
-            best_asset = best_candidate_info["asset"]
-            predicted_hole = best_candidate_info['predicted_hole']
-            eta = best_candidate_info['eta']
-
-            order.assigned_to = best_asset
-            order.status = "assigned"
-            best_asset.status = AssetStatus.ON_DELIVERY
-            best_asset.current_orders.append(order)
+        if chosen_asset:
+            # Get scoring information for logging
+            score_info = self.strategy.score_asset_order_pair(chosen_asset, order)
             
-            print(f"Order {order.order_id} for hole {order.hole_number} assigned to {best_asset.name}.")
+            # Assign the order
+            order.assigned_to = chosen_asset
+            order.status = "assigned"
+            chosen_asset.status = AssetStatus.ON_DELIVERY
+            chosen_asset.current_orders.append(order)
+            
+            print(f"Order {order.order_id} for hole {order.hole_number} assigned to {chosen_asset.name}.")
+            eta = score_info.get('eta', 0)
+            predicted_hole = score_info.get('predicted_hole', order.hole_number)
             print(f"--> Predicted delivery at Hole {predicted_hole} in {eta:.2f} minutes (includes 10 min prep time).")
-            return best_asset
+            
+            # Print detailed scoring information if available
+            if all(key in score_info for key in ['eta_score', 'distance_score', 'asset_type_score', 'predictability_score']):
+                print(f"    Score Details: Final Score={score_info['final_score']:.2f}, "
+                      f"ETA={score_info['eta_score']:.2f}, Distance={score_info['distance_score']:.2f}, "
+                      f"Asset Type={score_info['asset_type_score']:.2f}, Predictability={score_info['predictability_score']:.2f}")
+            else:
+                # Print available score information
+                print(f"    Score: {score_info.get('final_score', 'N/A')}")
+            
+            return chosen_asset
         else:
-            print(f"No available candidates found for order {order.order_id}.")
+            print(f"No suitable candidates found for order {order.order_id}.")
             return None 

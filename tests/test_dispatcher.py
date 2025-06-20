@@ -2,6 +2,7 @@
 Tests for the dispatcher module
 """
 import pytest
+from unittest.mock import patch
 from src.models import BeverageCart, DeliveryStaff, Order, AssetStatus, OrderStatus
 from src.dispatcher import Dispatcher
 
@@ -50,7 +51,8 @@ class TestDispatcher:
         # Should prefer cart2 or staff members
         assert candidate['asset'].asset_id in ["cart2", "staff1", "staff2"]
     
-    def test_dispatch_order_success(self, dispatcher):
+    @patch('random.random', return_value=0.1)  # Mock to always accept (0.1 < any acceptance_chance > 0.5)
+    def test_dispatch_order_success(self, mock_random, dispatcher):
         """Test successful order dispatch"""
         order = Order(order_id="TEST003", hole_number=3)
         assigned_asset = dispatcher.dispatch_order(order)

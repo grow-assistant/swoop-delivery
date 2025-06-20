@@ -24,19 +24,43 @@ def run_simulation():
     # 2. Initialize Dispatcher
     dispatcher = Dispatcher(assets)
     
-    # 3. Create a new order
-    print("\n--- New Order ---")
-    order = Order(order_id="ORD123", hole_number=4)
-    print(f"Incoming order for Hole {order.hole_number}.")
-
-    # 4. Dispatch the order
-    print("\nDispatching order...")
-    dispatcher.dispatch_order(order)
+    # 3. Test single order dispatch
+    print("\n--- Test 1: Single Order Dispatch ---")
+    order1 = Order(order_id="ORD123", hole_number=4)
+    print(f"Incoming order for Hole {order1.hole_number}.")
+    dispatcher.dispatch_order(order1, consider_batching=False)
     
-    # 5. Show updated status
-    print("\nUpdated Asset Status:")
+    # Reset assets for next test
+    for asset in assets:
+        if asset.name in ["Reese", "Esteban"]:  # Reset the assets that might have been used
+            asset.status = AssetStatus.AVAILABLE
+            asset.current_orders = []
+    
+    # 4. Test batch order dispatch
+    print("\n\n--- Test 2: Batch Order Dispatch ---")
+    print("Creating multiple orders that can be batched:")
+    
+    # Create orders at adjacent holes
+    order2 = Order(order_id="ORD124", hole_number=5)
+    order3 = Order(order_id="ORD125", hole_number=6)
+    order4 = Order(order_id="ORD126", hole_number=7)
+    
+    # Add orders to pending list
+    dispatcher.add_pending_order(order2)
+    dispatcher.add_pending_order(order3)
+    dispatcher.add_pending_order(order4)
+    
+    print(f"\nIncoming orders: Holes {order2.hole_number}, {order3.hole_number}, {order4.hole_number}")
+    print("\nDispatching with batching enabled...")
+    dispatcher.dispatch_order(order2, consider_batching=True)
+    
+    # 5. Show final status
+    print("\n\n--- Final Asset Status ---")
     for asset in assets:
         print(f"- {asset.name}: Location={asset.current_location}, Status={asset.status.value}")
+        if asset.current_orders:
+            order_ids = [o.order_id for o in asset.current_orders]
+            print(f"  → Current orders: {order_ids}")
 
 if __name__ == "__main__":
     run_simulation() 

@@ -3,6 +3,7 @@ Data models for the delivery system.
 """
 from enum import Enum
 from dataclasses import dataclass, field
+from typing import List, Optional
 
 class AssetStatus(Enum):
     """Represents the status of a delivery asset."""
@@ -38,9 +39,20 @@ class DeliveryStaff(DeliveryAsset):
     pass
 
 @dataclass
+class OrderItem:
+    """Represents an item in an order."""
+    name: str
+    quantity: int = 1
+    complexity: str = 'medium'  # 'simple', 'medium', or 'complex'
+    price: float = 0.0
+
+@dataclass
 class Order:
     """Represents a customer order."""
     order_id: str
     hole_number: int
     status: OrderStatus = OrderStatus.PENDING
-    assigned_to: DeliveryAsset = None 
+    assigned_to: DeliveryAsset = None
+    items: List[OrderItem] = field(default_factory=list)
+    value: float = 0.0
+    time_of_day: Optional[str] = None  # 'morning', 'noon', 'afternoon' 

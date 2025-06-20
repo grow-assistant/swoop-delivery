@@ -71,14 +71,17 @@ class TestDispatcher:
         
         assert assigned_asset is not None
         assert order.status == OrderStatus.ASSIGNED
-        assert assigned_asset.status == AssetStatus.ON_DELIVERY
+        # With state-driven movement, assets not at clubhouse go to EN_ROUTE_TO_PICKUP first
+        # Staff 1 is at clubhouse, so would go to WAITING_FOR_ORDER
+        # Others would go to EN_ROUTE_TO_PICKUP
+        assert assigned_asset.status in [AssetStatus.EN_ROUTE_TO_PICKUP, AssetStatus.WAITING_FOR_ORDER]
         assert order in assigned_asset.current_orders
     
     def test_dispatch_order_no_available_assets(self, dispatcher):
         """Test dispatch when no assets are available"""
         # Set all assets to busy
         for asset in dispatcher.assets:
-            asset.status = AssetStatus.ON_DELIVERY
+            asset.status = AssetStatus.EN_ROUTE_TO_DROPOFF
         
         order = Order(order_id="TEST004", hole_number=7)
         assigned_asset = dispatcher.dispatch_order(order)
@@ -95,3 +98,37 @@ class TestDispatcher:
         # If a cart is available for the zone, it should be preferred
         if candidate and isinstance(candidate['asset'], BeverageCart):
             assert candidate['asset'].loop == "front_9"
+    
+    @patch('random.random', return_value=0.1)
+    def test_state_transition_from_clubhouse(self, mock_random, dispatcher):
+        """Test that assets at clubhouse transition to WAITING_FOR_ORDER"""
+        # Staff 1 is at clubhouse
+        staff1 = next(a for a in dispatcher.assets if a.asset_id == "staff1")
+        order = Order(order_id="TEST006", hole_number=8)
+        
+        # Force selection of staff1 by making others unavailable
+        for asset in dispatcher.assets:
+            if asset != staff1:
+                asset.status = AssetStatus.INACTIVE
+        
+        assigned_asset = dispatcher.dispatch_order(order)
+        
+        assert assigned_asset == staff1
+        assert assigned_asset.status == AssetStatus.WAITING_FOR_ORDER
+    
+    @patch('random.random', return_value=0.1)
+    def test_state_transition_not_at_clubhouse(self, mock_random, dispatcher):
+        """Test that assets not at clubhouse transition to EN_ROUTE_TO_PICKUP"""
+        # Cart 1 is at hole 1 (not clubhouse)
+        cart1 = next(a for a in dispatcher.assets if a.asset_id == "cart1")
+        order = Order(order_id="TEST007", hole_number=3)
+        
+        # Force selection of cart1 by making others unavailable
+        for asset in dispatcher.assets:
+            if asset != cart1:
+                asset.status = AssetStatus.INACTIVE
+        
+        assigned_asset = dispatcher.dispatch_order(order)
+        
+        assert assigned_asset == cart1
+        assert assigned_asset.status == AssetStatus.EN_ROUTE_TO_PICKUP

@@ -12,18 +12,25 @@ from decouple import config
 # Database configuration
 DATABASE_URL = config("DATABASE_URL", default="sqlite:///./golf_delivery.db")
 
-# Create engine
-if DATABASE_URL.startswith("sqlite"):
-    engine = create_engine(
-        DATABASE_URL,
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool
-    )
-else:
-    engine = create_engine(DATABASE_URL)
+# Create engine lazily to avoid connection during imports
+engine = None
 
-# Create session
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+def get_engine():
+    """Get or create the database engine"""
+    global engine
+    if engine is None:
+        if DATABASE_URL.startswith("sqlite"):
+            engine = create_engine(
+                DATABASE_URL,
+                connect_args={"check_same_thread": False},
+                poolclass=StaticPool
+            )
+        else:
+            engine = create_engine(DATABASE_URL)
+    return engine
+
+# Create session factory (will bind to engine when needed)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False)
 
 # Create base
 Base = declarative_base()
@@ -78,11 +85,13 @@ class DBDeliveryMetric(Base):
 # Database initialization
 async def init_db():
     """Initialize database tables"""
-    Base.metadata.create_all(bind=engine)
+    Base.metadata.create_all(bind=get_engine())
 
 # Dependency
 def get_db():
     """Get database session"""
+    # Bind the session to engine only when needed
+    SessionLocal.configure(bind=get_engine())
     db = SessionLocal()
     try:
         yield db

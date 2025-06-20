@@ -56,7 +56,7 @@ class TestDispatcher:
         assigned_asset = dispatcher.dispatch_order(order)
         
         assert assigned_asset is not None
-        assert order.status == "assigned"
+        assert order.status == OrderStatus.ASSIGNED
         assert assigned_asset.status == AssetStatus.ON_DELIVERY
         assert order in assigned_asset.current_orders
     

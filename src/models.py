@@ -18,28 +18,24 @@ class OrderStatus(Enum):
     DELIVERED = "delivered"
     CANCELLED = "cancelled"
 
+@dataclass
 class DeliveryAsset:
-    """Base class for a delivery asset. Not a dataclass itself."""
-    pass
+    """Base class for a delivery asset."""
+    asset_id: str
+    name: str
+    status: AssetStatus = AssetStatus.AVAILABLE
+    current_location: any = "clubhouse"
+    current_orders: list = field(default_factory=list)
 
 @dataclass
 class BeverageCart(DeliveryAsset):
     """Represents a beverage cart that is restricted to a specific loop."""
-    asset_id: str
-    name: str
-    loop: str  # "front_9" or "back_9"
-    status: AssetStatus = AssetStatus.AVAILABLE
-    current_location: any = "clubhouse"
-    current_orders: list = field(default_factory=list)
+    loop: str = "front_9"  # "front_9" or "back_9"
 
 @dataclass
 class DeliveryStaff(DeliveryAsset):
     """Represents a delivery staff member who can roam the entire course."""
-    asset_id: str
-    name: str
-    status: AssetStatus = AssetStatus.AVAILABLE
-    current_location: any = "clubhouse"
-    current_orders: list = field(default_factory=list)
+    pass
 
 @dataclass
 class Order:

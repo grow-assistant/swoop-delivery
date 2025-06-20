@@ -4,6 +4,7 @@ Core logic for the delivery dispatch system.
 import math
 from .course_data import COURSE_DATA
 from .models import BeverageCart, DeliveryStaff, Order, AssetStatus
+from .simulation import AssetSimulator
 
 # --- NEW CONSTANTS ---
 PREP_TIME_MIN = 10
@@ -17,6 +18,7 @@ class Dispatcher:
     def __init__(self, assets: list):
         self.assets = assets
         self.course_data = COURSE_DATA
+        self.simulator = AssetSimulator()
 
     def _get_location_as_hole_num(self, location):
         """Converts location ('clubhouse' or hole number) to an integer."""
@@ -65,9 +67,9 @@ class Dispatcher:
         """
         candidates = []
 
-        # 1. Get eligible candidates
+        # 1. Get eligible candidates - now checks for IDLE status
         for asset in self.assets:
-            if asset.status == AssetStatus.AVAILABLE:
+            if asset.status == AssetStatus.IDLE:
                 eta, predicted_hole = self.calculate_eta_and_destination(asset, order.hole_number)
                 
                 # Check beverage carts for zone restriction
@@ -115,8 +117,10 @@ class Dispatcher:
 
             order.assigned_to = best_asset
             order.status = "assigned"
-            best_asset.status = AssetStatus.ON_DELIVERY
-            best_asset.current_orders.append(order)
+            best_asset.destination = order.hole_number
+            
+            # Use the simulator to update asset state properly
+            self.simulator.update_asset_state_for_new_order(best_asset, order)
             
             print(f"Order {order.order_id} for hole {order.hole_number} assigned to {best_asset.name}.")
             print(f"--> Predicted delivery at Hole {predicted_hole} in {eta:.2f} minutes (includes 10 min prep time).")

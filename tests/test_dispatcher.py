@@ -2,7 +2,7 @@
 Tests for the dispatcher module
 """
 import pytest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 from src.models import BeverageCart, DeliveryStaff, Order, AssetStatus, OrderStatus
 from src.dispatcher import Dispatcher
 
@@ -22,17 +22,29 @@ class TestDispatcher:
     
     @pytest.fixture
     def dispatcher(self, sample_assets):
-        """Create dispatcher with sample assets"""
-        return Dispatcher(sample_assets)
+        """Create dispatcher with sample assets and mocked prediction service"""
+        dispatcher = Dispatcher(sample_assets)
+        
+        # Mock the prediction service to return consistent values
+        mock_prediction_service = MagicMock()
+        mock_prediction_service.predict_travel_time.return_value = 5.0  # 5 minutes travel time
+        mock_prediction_service.predict_order_prep_time.return_value = 10.0  # 10 minutes prep time
+        mock_prediction_service.predict_offer_acceptance_chance.return_value = 0.8  # 80% acceptance
+        
+        dispatcher.prediction_service = mock_prediction_service
+        return dispatcher
     
     def test_calculate_eta_and_destination(self, dispatcher, sample_assets):
         """Test ETA calculation for an asset"""
         asset = sample_assets[0]  # Cart at hole 1
-        eta, predicted_hole = dispatcher.calculate_eta_and_destination(asset, 4)
+        order = Order(order_id="TEST_ETA", hole_number=4)
+        eta, predicted_hole, prep_time = dispatcher.calculate_eta_and_destination(asset, order)
         
         # ETA should include prep time and travel time
-        assert eta > 10  # At least prep time
-        assert predicted_hole >= 4  # Player should have advanced
+        assert eta > 0  # Should have some ETA
+        assert eta == 20.0  # 10 min prep + 5 min to clubhouse + 5 min to hole
+        assert predicted_hole >= 4  # Player should have advanced based on ETA
+        assert prep_time == 10.0  # Mocked prep time
     
     def test_find_best_candidate_front_nine(self, dispatcher):
         """Test finding best candidate for front nine order"""
